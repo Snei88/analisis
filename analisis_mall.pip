@@ -1,0 +1,162 @@
+
+
+
+# -*- coding: utf-8 -*-
+"""
+mall_customer_clustering.py
+
+Script completo para segmentación de clientes de un Mall usando K-Means.
+Incluye: EDA, preprocesamiento, selección de features, entrenamiento,
+evaluación y visualización.
+
+Requisitos: pandas, numpy, matplotlib, seaborn, scikit-learn, scipy
+"""
+
+# 1. IMPORTACIONES Y CONFIGURACIÓN BÁSICA
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, silhouette_samples
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
+
+# Estilo de gráficos
+sns.set(style="whitegrid")
+plt.rcParams["figure.figsize"] = (8, 5)
+
+# 2. CARGA DE DATOS
+df = pd.read_csv("Mall_Customers.csv")
+print("Primeras filas:\n", df.head(), "\n")
+print("Dimensiones:", df.shape)
+print(df.info(), "\n")
+print("Estadísticas descriptivas:\n", df.describe(), "\n")
+
+# 3. ANÁLISIS EXPLORATORIO (EDA)
+# 3.1 Distribución de género
+sns.countplot(data=df, x="Gender")
+plt.title("Conteo por Género")
+plt.show()
+
+# 3.2 Histogramas de variables numéricas
+df.hist(column=["Age","Annual Income (k$)","Spending Score (1-100)"],
+        bins=15, color='skyblue', edgecolor='black')
+plt.tight_layout()
+plt.show()
+
+# 3.3 Boxplots (outliers)
+fig, ax = plt.subplots(1, 3, figsize=(15,4))
+sns.boxplot(y=df["Age"], ax=ax[0]).set_title("Age")
+sns.boxplot(y=df["Annual Income (k$)"], ax=ax[1]).set_title("Annual Income")
+sns.boxplot(y=df["Spending Score (1-100)"], ax=ax[2]).set_title("Spending Score")
+plt.show()
+
+# 3.4 Matriz de correlación
+corr = df.corr(numeric_only=True)
+sns.heatmap(corr, annot=True, cmap="coolwarm")
+plt.title("Matriz de Correlación")
+plt.show()
+
+# 3.5 Scatter Ingreso vs Gasto por género
+sns.scatterplot(data=df, x="Annual Income (k$)", y="Spending Score (1-100)",
+                hue="Gender", palette="Set1")
+plt.title("Ingreso vs Gasto por Género")
+plt.show()
+
+
+# 4. PREPROCESAMIENTO
+# 4.1 Eliminar duplicados y columnas irrelevantes
+df.drop_duplicates(inplace=True)
+df.drop(columns=["CustomerID"], inplace=True)
+
+# 4.2 Codificar variable categórica
+df["Gender"] = df["Gender"].map({"Male":0, "Female":1})
+
+# 4.3 Confirmar nulos
+print("Valores nulos:\n", df.isnull().sum(), "\n")
+
+# 4.4 Escalado de variables
+features = ["Age","Annual Income (k$)","Spending Score (1-100)"]
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(df[features])
+
+# 5. SELECCIÓN DE CARACTERÍSTICAS (PCA para clustering)
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X_scaled)
+
+# 6. ENTRENAMIENTO DE MODELO: K-MEANS
+# 6.1 Método del Codo para inercia
+inertia = []
+for k in range(1, 11):
+    km = KMeans(n_clusters=k, random_state=42)
+    km.fit(X_scaled)
+    inertia.append(km.inertia_)
+
+plt.plot(range(1,11), inertia, marker='o')
+plt.xlabel("Número de Clusters")
+plt.ylabel("Inercia")
+plt.title("Método del Codo")
+plt.show()
+
+# 6.2 Elegimos k = 4 por el codo
+k_opt = 4
+kmeans = KMeans(n_clusters=k_opt, init='k-means++', max_iter=300, random_state=42)
+labels = kmeans.fit_predict(X_scaled)
+df["Cluster"] = labels
+
+# 7. EVALUACIÓN DEL MODELO
+sil = silhouette_score(X_scaled, labels)
+ch  = calinski_harabasz_score(X_scaled, labels)
+print(f"Silhouette Score (k={k_opt}): {sil:.3f}")
+print(f"Calinski-Harabasz (k={k_opt}): {ch:.3f}\n")
+
+# 7.1 Gráfico de Silhouette
+sample_vals = silhouette_samples(X_scaled, labels)
+y_lower = 10
+n_clusters = k_opt
+fig, ax1 = plt.subplots(1,1,figsize=(8,6))
+for i in range(n_clusters):
+    vals = sample_vals[labels == i]
+    vals.sort()
+    y_upper = y_lower + vals.shape[0]
+    color = sns.color_palette("Set2")[i]
+    ax1.fill_betweenx(np.arange(y_lower, y_upper), 0, vals, facecolor=color, alpha=0.7)
+    ax1.text(-0.01, y_lower + 0.5*vals.shape[0], str(i))
+    y_lower = y_upper + 10
+ax1.axvline(x=sil, color="red", linestyle="--")
+ax1.set_title(f"Silhouette Plot k={k_opt}")
+ax1.set_xlabel("Valor de Silhouette")
+ax1.set_ylabel("Cluster")
+plt.show()
+
+# 8. VISUALIZACIONES FINALES
+# 8.1 Scatter Ingreso vs Gasto
+sns.scatterplot(data=df, x="Annual Income (k$)", y="Spending Score (1-100)",
+                hue="Cluster", palette="Set2", s=60)
+plt.title(f"K-Means Clusters (k={k_opt})")
+plt.show()
+
+# 8.2 Scatter en espacio PCA
+plt.scatter(X_pca[:,0], X_pca[:,1], c=labels, cmap='Set2', s=60)
+plt.title("Clusters en el espacio PCA")
+plt.xlabel("PCA 1"); plt.ylabel("PCA 2")
+plt.show()
+
+# 8.3 Boxplots por cluster
+fig, axes = plt.subplots(1,3,figsize=(18,5))
+sns.boxplot(x="Cluster", y="Age", data=df, ax=axes[0], palette="Set3")
+sns.boxplot(x="Cluster", y="Annual Income (k$)", data=df, ax=axes[1], palette="Set3")
+sns.boxplot(x="Cluster", y="Spending Score (1-100)", data=df, ax=axes[2], palette="Set3")
+axes[0].set_title("Edad por Cluster")
+axes[1].set_title("Ingreso Anual por Cluster")
+axes[2].set_title("Spending Score por Cluster")
+plt.show()
+
+# 8.4 Medias por cluster
+cluster_means = df.groupby("Cluster")[features].mean().reset_index()
+print("Medias de variables por cluster:\n", cluster_means)
+
+# Fin del script
